@@ -1,0 +1,27 @@
+{
+    "accelerate_find_unused_params": false,
+    "dataset": "cifar10",
+    "optimizer": "adam",
+    "tracking": true,
+    "model_arch": "ddim",
+    "input_res": [
+        32,
+        32
+    ],
+    "num_channels": 3,
+    "model_name": "DDIM CIFAR 32",
+    "dim": 32,
+    "with_time_emb": true,
+    "residual": true,
+    "timesteps": 1000,
+    "gradient_accumulation_steps": 2,
+    "epochs": 100,
+    "batch_size": 256,
+    "lr": 3e-4,
+    "state_from_checkpoint": false,
+    "state_checkpoint_path": "",
+    "model_from_checkpoint": false,
+    "model_checkpoint_path": "",
+    "num_checkpoints": 10,
+    "sample_batch_size": 16
+}

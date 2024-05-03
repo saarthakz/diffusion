@@ -1,0 +1,20 @@
+{
+    "accelerate_find_unused_params": false,
+    "dataset": "mnist",
+    "input_res": [
+        32,
+        32
+    ],
+    "model_name": "Cold Diffuser",
+    "dim": 32,
+    "with_time_emb": true,
+    "residual": true,
+    "num_channels": 3,
+    "timesteps": 100,
+    "state_from_checkpoint": false,
+    "state_checkpoint_path": "",
+    "model_from_checkpoint": false,
+    "model_checkpoint_path": "",
+    "num_checkpoints": 20,
+    "sample_batch_size": 16
+}
