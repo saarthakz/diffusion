@@ -4,15 +4,16 @@
     "optimizer": "adam",
     "tracking": true,
     "model_arch": "ddim",
+    "scheduler": "linear",
     "input_res": [
         32,
         32
     ],
+    "dataset_mean":[0.5, 0.5, 0.5],
+    "dataset_std": [0.5, 0.5, 0.5],
     "num_channels": 3,
-    "model_name": "DDIM CIFAR 32",
-    "dim": 32,
-    "with_time_emb": true,
-    "residual": true,
+    "model_name": "DDIM CIFAR10 32",
+    "dim": 128,
     "timesteps": 1000,
     "gradient_accumulation_steps": 2,
     "epochs": 100,
@@ -23,5 +24,6 @@
     "model_from_checkpoint": false,
     "model_checkpoint_path": "",
     "num_checkpoints": 10,
-    "sample_batch_size": 16
+    "sample_batch_size": 16,
+    "sampling_steps": 200
 }

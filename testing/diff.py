@@ -5,11 +5,14 @@ sys.path.append(os.path.abspath("."))
 import torch
 import torch.nn as nn
 from torchvision.utils import save_image, make_grid
-from classes.Unet import Unet
+from classes.UNet import UNet
+from classes.UNet_two import UNet as UNet_two
 from classes.ColdGaussianDiffuser import ColdGaussianDiffuser
 from accelerate import Accelerator, DistributedDataParallelKwargs
 import argparse
 import json
+from utils.get_model_arch import get_model_arch
+from utils.unnormalize import unnormalize
 from random import random
 import math
 
@@ -30,20 +33,9 @@ def main(config: dict):
     accelerator.print(config)
 
     # Model
-    unet = Unet(
-        dim=config["dim"],
-        dim_mults=(1, 2, 4, 8),
-        channels=3,
-        with_time_emb=config["with_time_emb"],
-        residual=config["residual"],
-    )
+    unet = UNet_two(**config)
 
-    model = ColdGaussianDiffuser(
-        unet,
-        image_size=config["input_res"],
-        channels=config["num_channels"],
-        timesteps=config["timesteps"],  # number of steps
-    )
+    model = get_model_arch(config["model_arch"])(unet, **config)
 
     accelerator.print(model)
 
@@ -71,9 +63,8 @@ def main(config: dict):
         device=accelerator.device,
     )
 
-    noise, direct_recons, curr = model.module.sample(
-        noise=starting_noise, t=config["timesteps"]
-    )
+    curr = model.module.sample(starting_noise, config["sampling_steps"])
+    curr = unnormalize(curr, config["dataset_mean"], config["dataset_std"])
 
     base_path = os.path.join(model_dir, "images")
     os.makedirs(base_path, exist_ok=True)
@@ -87,14 +78,6 @@ def main(config: dict):
             f"{rand}_samples.png",
         ),
     )
-    save_image(
-        make_grid(direct_recons, nrow=int(math.sqrt(config["sample_batch_size"]))),
-        fp=os.path.join(
-            base_path,
-            f"{rand}_oneshots.png",
-        ),
-    )
-    accelerator.print(curr.shape)
 
 
 if __name__ == "__main__":

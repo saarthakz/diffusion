@@ -1,19 +1,22 @@
+from typing import Tuple
 import torch
-import torch.nn as nn
+from torch import nn
+import torch.nn.functional as F
+from tqdm import tqdm
+import numpy as np
 
 
-def extract(a, t, x_shape):
-    b, *_ = t.shape
-    out = a.gather(-1, t)
-    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+def extract(v, i, shape):
+    """
+    Get the i-th number in v, and the shape of v is mostly (T, ), the shape of i is mostly (batch_size, ).
+    equal to [v[index] for index in i]
+    """
+    out = torch.gather(v, index=i, dim=0)
+    out = out.to(device=i.device, dtype=torch.float32)
 
-
-def noise_like(shape, device, repeat=False):
-    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(
-        shape[0], *((1,) * (len(shape) - 1))
-    )
-    noise = lambda: torch.randn(shape, device=device)
-    return repeat_noise() if repeat else noise()
+    # reshape to (batch_size, 1, 1, 1, 1, ...) for broadcasting purposes.
+    out = out.view([i.shape[0]] + [1] * (len(shape) - 1))
+    return out
 
 
 def cosine_beta_schedule(timesteps, s=0.008):
@@ -29,102 +32,104 @@ def cosine_beta_schedule(timesteps, s=0.008):
     return torch.clip(betas, 0, 0.999)
 
 
-class DDIM(nn.Module):
+def linear_beta_schedule(timesteps, betas=None):
+    if betas == None:
+        betas = [1e-4, 0.02]
+    return torch.linspace(*betas, timesteps)
+
+
+class GaussianDiffuser(nn.Module):
     def __init__(
         self,
-        noise_pred_fn,
-        *,
-        input_res,
-        num_channels=3,
-        timesteps=1000,
+        model: nn.Module,
+        timesteps: int,
+        betas=None,
+        scheduler="linear",
         **kwargs,
     ):
         super().__init__()
-        self.channels = num_channels
-        self.image_size = input_res
-        self.noise_pred_fn = noise_pred_fn
+        self.model = model
+        self.T = timesteps
 
-        self.num_timesteps = int(timesteps)
+        # generate T steps of beta
+        beta_t = (
+            linear_beta_schedule(timesteps, betas)
+            if scheduler == "linear"
+            else cosine_beta_schedule(timesteps)
+        )
+        self.register_buffer("beta_t", beta_t)
 
-        betas = cosine_beta_schedule(timesteps)
-        alphas = 1.0 - betas
-        alphas_cumprod = torch.cumprod(alphas, axis=0)
+        # calculate the cumulative product of $\alpha$ , named $\bar{\alpha_t}$ in paper
+        alpha_t = 1.0 - self.beta_t
+        alpha_t_bar = torch.cumprod(alpha_t, dim=0)
 
-        self.register_buffer("alphas_cumprod", alphas_cumprod)
-        self.register_buffer("sqrt_alphas_cumprod", torch.sqrt(alphas_cumprod))
+        # calculate and store two coefficient of $q(x_t | x_0)$
+        self.register_buffer("sqrt_alpha_cumprod", torch.sqrt(alpha_t_bar))
         self.register_buffer(
-            "sqrt_one_minus_alphas_cumprod", torch.sqrt(1.0 - alphas_cumprod)
+            "sqrt_one_minus_alpha_cumprod", torch.sqrt(1.0 - alpha_t_bar)
         )
 
-    @torch.no_grad()
-    def sample(self, noise: torch.Tensor, t=None, batch_size=16):
+    def forward(self, x):
+        # get a random training step $t \sim Uniform({1, ..., T})$
+        t = torch.randint(low=0, high=self.T, size=(x.shape[0],), device=x.device)
 
-        self.noise_pred_fn.eval()
-        if t == None:
-            t = self.num_timesteps
+        # generate $\epsilon \sim N(0, 1)$
+        epsilon = torch.randn_like(x)
 
-        curr = noise
-        direct_recons = None
-
-        for curr_t in range(t, 1, -1):
-            step = torch.full(
-                (batch_size,),
-                curr_t - 1,
-                dtype=torch.long,
-                device=curr.device,
-            )
-
-            predicted_noise = self.noise_pred_fn(curr, step)
-            x_0_bar = (
-                curr
-                - extract(self.sqrt_one_minus_alphas_cumprod, step, curr.shape)
-                * predicted_noise
-            ) / extract(self.sqrt_alphas_cumprod, step, curr.shape)
-
-            # 1 Shot Reconstruction
-            if direct_recons is None:
-                direct_recons = x_0_bar
-
-            step_minus_one = torch.full(
-                (batch_size,),
-                curr_t - 2,
-                dtype=torch.long,
-                device=curr.device,
-            )
-
-            curr = self.add_noise(x_0_bar, predicted_noise, step_minus_one)
-
-        self.noise_pred_fn.train()
-
-        return noise, direct_recons, curr
-
-    def add_noise(self, x_start, noise, timesteps):
-        # simply use the alphas to interpolate
-        return (
-            extract(self.sqrt_alphas_cumprod, timesteps, x_start.shape) * x_start  #
-            + extract(self.sqrt_one_minus_alphas_cumprod, timesteps, x_start.shape)
-            * noise
+        # predict the noise added from $x_{t-1}$ to $x_t$
+        x_t = (
+            extract(self.sqrt_alpha_cumprod, t, x.shape) * x
+            + extract(self.sqrt_one_minus_alpha_cumprod, t, x.shape) * epsilon
         )
+        epsilon_theta = self.model(x_t, t)
 
-    def get_loss(self, x_start, noise, timesteps):
-        noised = self.add_noise(x_start=x_start, noise=noise, timesteps=timesteps)
-        predicted_noise = self.noise_pred_fn(noised, timesteps)
-
-        loss = torch.nn.functional.mse_loss(predicted_noise, noise)
-
+        # get the gradient
+        loss = F.mse_loss(epsilon_theta, epsilon)
+        # loss = torch.sum(loss)
         return loss
 
-    def forward(self, x: torch.Tensor, *args, **kwargs):
-        (b, c, h, w, img_h, img_w) = (*x.shape, *self.image_size)
+    @torch.no_grad()
+    def sample(
+        self,
+        x_t,
+        steps: int = 1,
+    ):
+        B, *_ = x_t.shape
 
-        assert (
-            h == img_h and w == img_w
-        ), f"height and width of image must be {img_h} {img_w}"
+        time_steps = np.asarray(
+            list(range(0, self.T, self.T // steps))
+        )  # This ensures that the number of time steps is equal to the arg: steps
 
-        # Noise for a random number of timesteps
-        timesteps = torch.randint(
-            low=0, high=self.num_timesteps, size=(b,), device=x.device
-        ).long()
+        # add one to get the final alpha values right (the ones from first scale to data during sampling)
+        # previous sequence
+        time_steps_prev = np.concatenate([[0], time_steps[:-1]])
 
-        noise = torch.randn_like(x, device=x.device)
-        return self.get_loss(x, noise, timesteps, *args, **kwargs)
+        progress_bar = tqdm(range(len(time_steps)))
+
+        for idx, (time_step, prev_time_step) in enumerate(
+            zip(reversed(time_steps), reversed(time_steps_prev))
+        ):
+
+            t = torch.full((B,), time_step, device=x_t.device, dtype=torch.long)
+            t_minus_one = torch.full(
+                (B,), prev_time_step, device=x_t.device, dtype=torch.long
+            )
+
+            # # predict noise using model
+            epsilon_theta_t = self.model(x_t, t)
+
+            x_zero_hat = (
+                x_t
+                - epsilon_theta_t
+                * extract(self.sqrt_one_minus_alpha_cumprod, t, x_t.shape)
+            ) / extract(self.sqrt_alpha_cumprod, t, x_t.shape)
+
+            x_t = (
+                extract(self.sqrt_alpha_cumprod, t_minus_one, x_t.shape) * x_zero_hat
+                + extract(self.sqrt_one_minus_alpha_cumprod, t_minus_one, x_t.shape)
+                * epsilon_theta_t
+            )
+
+            progress_bar.update(1)
+
+        return x_t

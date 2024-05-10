@@ -10,7 +10,8 @@ from utils.get_dataset import get_dataset
 from utils.get_optimizer import get_optimizer
 from utils.get_model_arch import get_model_arch
 import math
-from classes.Unet import Unet
+from classes.UNet import UNet
+from classes.UNet_two import UNet as UNet_two
 from tqdm.auto import tqdm
 from torch.utils.data import DataLoader
 from accelerate import Accelerator, DistributedDataParallelKwargs
@@ -57,22 +58,21 @@ def main(config: dict):
 
     # Dataset and Dataloaders
 
-    train_dataset = get_dataset(config["dataset"], config["input_res"])
-
+    train_dataset = get_dataset(
+        config["dataset"],
+        config["input_res"],
+        config["dataset_mean"],
+        config["dataset_std"],
+    )
     train_loader = DataLoader(
         dataset=train_dataset,
         batch_size=batch_size,
         shuffle=True,
+        drop_last=True,
     )
 
     # Model
-    unet = Unet(
-        dim=config["dim"],
-        dim_mults=(1, 2, 4, 8),
-        channels=config["num_channels"],
-        with_time_emb=config["with_time_emb"],
-        residual=config["residual"],
-    )
+    unet = UNet_two(**config)
 
     model = get_model_arch(config["model_arch"])(unet, **config)
     accelerator.print(model)
@@ -144,26 +144,17 @@ def main(config: dict):
                         device=accelerator.device,
                     )
 
-                    noise, direct_recons, curr = model.module.sample(
-                        noise=starting_noise, t=config["timesteps"]
-                    )
+                    curr = model.module.sample(starting_noise, config["sampling_steps"])
 
                     sample_imgs = make_grid(
                         curr, nrow=int(math.sqrt(config["sample_batch_size"]))
-                    )
-                    oneshot_imgs = make_grid(
-                        direct_recons,
-                        nrow=int(math.sqrt(config["sample_batch_size"])),
                     )
 
                     accelerator.log(
                         {
                             "Samples": wandb.Image(
                                 sample_imgs, caption=f"Step {total_steps}"
-                            ),
-                            "One Shots": wandb.Image(
-                                oneshot_imgs, caption=f"Step {total_steps}"
-                            ),
+                            )
                         }
                     )
                     accelerator.save_state(

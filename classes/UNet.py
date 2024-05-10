@@ -136,34 +136,28 @@ class LinearAttention(nn.Module):
 # model
 
 
-class Unet(nn.Module):
+class UNet(nn.Module):
     def __init__(
         self,
-        dim,
+        dim=128,
+        num_channels=3,
+        dim_mults=(1, 2, 2, 2),
         out_dim=None,
-        dim_mults=(1, 2, 4, 8),
-        channels=3,
-        with_time_emb=True,
-        residual=False,
+        **kwargs,
     ):
         super().__init__()
-        self.channels = channels
-        self.residual = residual
+        self.channels = num_channels
 
-        dims = [channels, *map(lambda m: dim * m, dim_mults)]
+        dims = [num_channels, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
 
-        if with_time_emb:
-            time_dim = dim
-            self.time_mlp = nn.Sequential(
-                SinusoidalPosEmb(dim),
-                nn.Linear(dim, dim * 4),
-                nn.GELU(),
-                nn.Linear(dim * 4, dim),
-            )
-        else:
-            time_dim = None
-            self.time_mlp = None
+        time_dim = dim
+        self.time_mlp = nn.Sequential(
+            SinusoidalPosEmb(dim),
+            nn.Linear(dim, dim * 4),
+            nn.GELU(),
+            nn.Linear(dim * 4, dim),
+        )
 
         self.downs = nn.ModuleList([])
         self.ups = nn.ModuleList([])
@@ -204,14 +198,14 @@ class Unet(nn.Module):
                 )
             )
 
-        out_dim = default(out_dim, channels)
+        out_dim = default(out_dim, num_channels)
         self.final_conv = nn.Sequential(
             ConvNextBlock(dim, dim), nn.Conv2d(dim, out_dim, 1)
         )
 
     def forward(self, x, time):
         orig_x = x
-        t = self.time_mlp(time) if exists(self.time_mlp) else None
+        t = self.time_mlp(time)
 
         h = []
 
@@ -232,7 +226,5 @@ class Unet(nn.Module):
             x = convnext2(x, t)
             x = attn(x)
             x = upsample(x)
-        if self.residual:
-            return self.final_conv(x) + orig_x
 
-        return self.final_conv(x)
+        return self.final_conv(x) + orig_x
