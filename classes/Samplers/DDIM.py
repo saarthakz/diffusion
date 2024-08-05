@@ -4,47 +4,21 @@ from torch import nn
 import torch.nn.functional as F
 from tqdm import tqdm
 import numpy as np
+import os
+import sys
+
+sys.path.append(os.path.abspath("."))
+
+from utils.extract import extract
 
 
-def extract(v, i, shape):
-    """
-    Get the i-th number in v, and the shape of v is mostly (T, ), the shape of i is mostly (batch_size, ).
-    equal to [v[index] for index in i]
-    """
-    out = torch.gather(v, index=i, dim=0)
-    out = out.to(device=i.device, dtype=torch.float32)
-
-    # reshape to (batch_size, 1, 1, 1, 1, ...) for broadcasting purposes.
-    out = out.view([i.shape[0]] + [1] * (len(shape) - 1))
-    return out
-
-
-def cosine_beta_schedule(timesteps, s=0.008):
-    """
-    cosine schedule
-    as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
-    """
-    steps = timesteps + 1
-    x = torch.linspace(0, steps, steps)
-    alphas_cumprod = torch.cos(((x / steps) + s) / (1 + s) * torch.pi * 0.5) ** 2
-    alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-    betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-    return torch.clip(betas, 0, 0.999)
-
-
-def linear_beta_schedule(timesteps, betas=None):
-    if betas == None:
-        betas = [1e-4, 0.02]
-    return torch.linspace(*betas, timesteps)
-
-
-class GaussianDiffuser(nn.Module):
+class DDIM(nn.Module):
     def __init__(
         self,
         model: nn.Module,
         timesteps: int,
+        scheduler: function,
         betas=None,
-        scheduler="linear",
         **kwargs,
     ):
         super().__init__()
@@ -52,11 +26,7 @@ class GaussianDiffuser(nn.Module):
         self.T = timesteps
 
         # generate T steps of beta
-        beta_t = (
-            linear_beta_schedule(timesteps, betas)
-            if scheduler == "linear"
-            else cosine_beta_schedule(timesteps)
-        )
+        beta_t = scheduler(timesteps, betas)
         self.register_buffer("beta_t", beta_t)
 
         # calculate the cumulative product of $\alpha$ , named $\bar{\alpha_t}$ in paper
@@ -69,27 +39,8 @@ class GaussianDiffuser(nn.Module):
             "sqrt_one_minus_alpha_cumprod", torch.sqrt(1.0 - alpha_t_bar)
         )
 
-    def forward(self, x):
-        # get a random training step $t \sim Uniform({1, ..., T})$
-        t = torch.randint(low=0, high=self.T, size=(x.shape[0],), device=x.device)
-
-        # generate $\epsilon \sim N(0, 1)$
-        epsilon = torch.randn_like(x)
-
-        # predict the noise added from $x_{t-1}$ to $x_t$
-        x_t = (
-            extract(self.sqrt_alpha_cumprod, t, x.shape) * x
-            + extract(self.sqrt_one_minus_alpha_cumprod, t, x.shape) * epsilon
-        )
-        epsilon_theta = self.model(x_t, t)
-
-        # get the gradient
-        loss = F.mse_loss(epsilon_theta, epsilon)
-        # loss = torch.sum(loss)
-        return loss
-
     @torch.no_grad()
-    def sample(
+    def forward(
         self,
         x_t,
         steps: int = 1,

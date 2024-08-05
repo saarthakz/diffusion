@@ -8,20 +8,21 @@ from torchvision.utils import make_grid
 from utils.logger import Logger
 from utils.get_dataset import get_dataset
 from utils.get_optimizer import get_optimizer
-from utils.get_model_arch import get_model_arch
+from utils.get_archs import get_backbone_arch, get_diffuser_arch, get_sampler_arch
 import math
-from classes.UNet import UNet
-from classes.UNet_two import UNet as UNet_two
 from tqdm.auto import tqdm
 from torch.utils.data import DataLoader
 from accelerate import Accelerator, DistributedDataParallelKwargs
 import argparse
 import json
 import wandb
+from datetime import datetime
 
 
 def main(config: dict):
-    model_name = config["model_name"]
+    model_name = (
+        f'{config["model_name"]} {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}'
+    )
     model_dir = os.path.join(os.getcwd(), "models", model_name)
 
     ddp_kwargs = DistributedDataParallelKwargs(
@@ -72,9 +73,9 @@ def main(config: dict):
     )
 
     # Model
-    unet = UNet_two(**config)
+    unet = get_backbone_arch(config["backbone_arch"])
 
-    model = get_model_arch(config["model_arch"])(unet, **config)
+    model = get_diffuser_arch(config["diffuser_arch"])(unet, **config)
     accelerator.print(model)
 
     # Print # of model parameters
@@ -92,17 +93,17 @@ def main(config: dict):
     # Optimizers
     optim = get_optimizer(config["optimizer"])(model.parameters(), lr=config["lr"])
 
+    # Acceleration :P
+    train_loader = accelerator.prepare_data_loader(data_loader=train_loader)
+    model = accelerator.prepare_model(model=model)
+    optim = accelerator.prepare_optimizer(optimizer=optim)
+
     # Load a state from checkpoint if required
     if config["state_from_checkpoint"]:
         accelerator.load_state(input_dir=config["state_checkpoint_path"])
         accelerator.print(
             "State loaded from checkpoint: ", config["state_checkpoint_path"]
         )
-
-    # Acceleration :P
-    train_loader = accelerator.prepare_data_loader(data_loader=train_loader)
-    model = accelerator.prepare_model(model=model)
-    optim = accelerator.prepare_optimizer(optimizer=optim)
 
     total_steps = epochs * len(train_loader)
     checkpoint_step = total_steps // config["num_checkpoints"]
@@ -135,28 +136,9 @@ def main(config: dict):
 
                 if total_steps % checkpoint_step == 0:
                     ckpt_dir = os.path.join(model_dir, "checkpoints", f"{total_steps}")
-                    starting_noise = torch.randn(
-                        size=(
-                            config["sample_batch_size"],
-                            config["num_channels"],
-                            *config["input_res"],
-                        ),
-                        device=accelerator.device,
-                    )
 
-                    curr = model.module.sample(starting_noise, config["sampling_steps"])
+                    # Sampling to be added here
 
-                    sample_imgs = make_grid(
-                        curr, nrow=int(math.sqrt(config["sample_batch_size"]))
-                    )
-
-                    accelerator.log(
-                        {
-                            "Samples": wandb.Image(
-                                sample_imgs, caption=f"Step {total_steps}"
-                            )
-                        }
-                    )
                     accelerator.save_state(
                         ckpt_dir,
                         safe_serialization=False,
