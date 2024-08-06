@@ -1,7 +1,5 @@
-from typing import Tuple
 import torch
 from torch import nn
-import torch.nn.functional as F
 from tqdm import tqdm
 import numpy as np
 import os
@@ -20,11 +18,13 @@ class EulerSampler(nn.Module):
         timesteps: int,
         scheduler: Callable,
         betas=None,
+        ancestral=False,
         **kwargs,
     ):
         super().__init__()
         self.model = model
         self.T = timesteps
+        self.ancestral = ancestral
 
         # generate T steps of beta
         beta_t = scheduler(timesteps, betas)
@@ -70,9 +70,18 @@ class EulerSampler(nn.Module):
             # # predict noise using model
             epsilon_theta_t = self.model(x_t, t)
 
-            x_t = (
-                x_t - extract(self.beta_t, t_minus_one, x_t.shape) * epsilon_theta_t
-            ) / torch.sqrt(1.0 - extract(self.beta_t, t, x_t.shape))
+            # Remove the predicted noise
+            x_t -= (
+                torch.sqrt(extract(self.beta_t, t_minus_one, x_t.shape))
+                * epsilon_theta_t
+            )
+
+            # If ancestral sampling, add some amount of scaled noise. This makes the sampling stochastic rather than deterministic
+            if self.ancestral:
+                x_t += torch.sqrt(
+                    extract(self.beta_t, t, x_t.shape)
+                ) * torch.randn_like(x_t)
+            x_t /= torch.sqrt(1.0 - extract(self.beta_t, t, x_t.shape))
 
             progress_bar.update(1)
 
