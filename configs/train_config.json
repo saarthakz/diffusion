@@ -3,10 +3,10 @@
     "dataset": "cifar10",
     "optimizer": "adam",
     "tracking": true,
-    "diffuser_arch": "standard_gaussian",
-    "sampler_arch": "ddim",
-    "backbone_arch": "unet",
-    "scheduler": "linear",
+    "diffuser": "standard_gaussian",
+    "sampler": "ddim",
+    "backbone": "unet",
+    "scheduler": "linear_beta",
     "input_res": [
         32,
         32
@@ -18,7 +18,7 @@
     "dim": 128,
     "timesteps": 1000,
     "gradient_accumulation_steps": 2,
-    "epochs": 100,
+    "epochs": 10,
     "batch_size": 256,
     "lr": 3e-4,
     "state_from_checkpoint": false,

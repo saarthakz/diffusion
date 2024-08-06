@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import os
 import sys
+from typing import Callable
 
 sys.path.append(os.path.abspath("."))
 from utils.extract import extract
@@ -12,7 +13,7 @@ class ColdGaussianDiffuserSampler(nn.Module):
         self,
         model: nn.Module,
         timesteps: int,
-        scheduler: function,
+        scheduler: Callable,
         betas=None,
         **kwargs,
     ):

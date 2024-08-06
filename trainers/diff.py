@@ -3,12 +3,15 @@ import sys
 
 sys.path.append(os.path.abspath("."))
 import torch
-import torch.nn as nn
-from torchvision.utils import make_grid
 from utils.logger import Logger
-from utils.get_dataset import get_dataset
-from utils.get_optimizer import get_optimizer
-from utils.get_archs import get_backbone_arch, get_diffuser_arch, get_sampler_arch
+from utils.get import (
+    get_backbone_arch,
+    get_diffuser_arch,
+    get_sampler_arch,
+    get_scheduler,
+    get_optimizer,
+    get_dataset,
+)
 import math
 from tqdm.auto import tqdm
 from torch.utils.data import DataLoader
@@ -72,10 +75,19 @@ def main(config: dict):
         drop_last=True,
     )
 
-    # Model
-    unet = get_backbone_arch(config["backbone_arch"])
-
-    model = get_diffuser_arch(config["diffuser_arch"])(unet, **config)
+    # Backbone, Model (Diffuser), Scheduler and Sampler (Used while checkpointing)
+    unet = get_backbone_arch(config["backbone"])
+    scheduler = get_scheduler(config["scheduler"])
+    model = get_diffuser_arch(config["diffuser"])(
+        model=unet,
+        scheduler=scheduler,
+        **config,
+    )
+    sampler = get_sampler_arch(config["sampler"])(
+        model=model,
+        scheduler=scheduler,
+        **config,
+    )
     accelerator.print(model)
 
     # Print # of model parameters

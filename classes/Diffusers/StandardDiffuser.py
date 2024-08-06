@@ -6,6 +6,7 @@ import sys
 
 sys.path.append(os.path.abspath("."))
 from utils.extract import extract
+from typing import Callable
 
 
 class StandardDiffuser(nn.Module):
@@ -14,7 +15,7 @@ class StandardDiffuser(nn.Module):
         self,
         model: nn.Module,
         timesteps: int,
-        scheduler: function,
+        scheduler: Callable,
         betas=None,
         **kwargs,
     ):

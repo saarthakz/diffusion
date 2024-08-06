@@ -6,6 +6,7 @@ from tqdm import tqdm
 import numpy as np
 import os
 import sys
+from typing import Callable
 
 sys.path.append(os.path.abspath("."))
 
@@ -17,7 +18,7 @@ class EulerSampler(nn.Module):
         self,
         model: nn.Module,
         timesteps: int,
-        scheduler: function,
+        scheduler: Callable,
         betas=None,
         **kwargs,
     ):
