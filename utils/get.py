@@ -118,3 +118,27 @@ def get_batch_std(x: torch.Tensor, mean: torch.Tensor, input_res: list[int]):
     var += ((images - mean.unsqueeze(1)) ** 2).sum([0, 2])
     std = torch.sqrt(var / (H * W * batch_samples))
     return std
+
+
+def get_flow_backbone(config: dict):
+    """
+    Get flow matching backbone class based on config.
+    
+    Supports:
+    - FlowNet: Convolutional backbone
+    - DiT: Diffusion Transformer
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Backbone class (not instantiated)
+    """
+    model_type = config.get("model_type", "flownet")
+    
+    if model_type == "dit":
+        from classes.Backbones.Transformers import DiffusionTransformer
+        return DiffusionTransformer
+    else:  # flownet or default
+        from classes.Backbones.FlowNet import FlowNet
+        return FlowNet

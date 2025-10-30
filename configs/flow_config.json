@@ -1,0 +1,49 @@
+{
+    "model_name": "flow_matching_mnist",
+    "tracking": true,
+    "logging": true,
+    "wandb_entity": "zsaarthakz",
+    "accelerate_find_unused_params": false,
+    
+    "dataset": "mnist",
+    "optimizer": "adam",
+    "input_res": [28, 28],
+    "dataset_mean": [0.5],
+    "dataset_std": [0.5],
+    "num_channels": 1,
+    
+    "model_type": "dit",
+    
+    "hidden_dims": [32, 64, 128, 64, 32],
+    "time_dim": 64,
+    
+    "patch_size": 4,
+    "embed_dim": 128,
+    "depth": 4,
+    "num_heads": 4,
+    "dropout": 0.0,
+    "use_adaln": true,
+    
+    "use_ema": true,
+    "ema_decay": 0.9999,
+    "ema_update_every": 1,
+    "ema_update_after_step": 100,
+    
+    "timestep_sampling": "logit_normal",
+    "timestep_logit_std": 1.0,
+    "grad_clip": 1.0,
+    
+    "gradient_accumulation_steps": 1,
+    "epochs": 100,
+    "batch_size": 128,
+    "lr": 0.0002,
+    "state_from_checkpoint": false,
+    "state_checkpoint_path": "",
+    "model_from_checkpoint": false,
+    "model_checkpoint_path": "",
+    "num_checkpoints": 10,
+    "sampling_steps": 1000,
+    "sample_batch_size": 16,
+    "num_workers": 0
+}
+
